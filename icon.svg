@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Auto continue goals">
+  <circle cx="32" cy="32" r="27" fill="#165DFF"/>
+  <path d="M19 31a14 14 0 0 1 24-9l3-3v12H34l4-4a8 8 0 0 0-13 4" fill="#fff"/>
+  <path d="M45 33a14 14 0 0 1-24 9l-3 3V33h12l-4 4a8 8 0 0 0 13-4" fill="#D7E5FF"/>
+  <circle cx="48" cy="14" r="8" fill="#F59E0B" stroke="#fff" stroke-width="2"/>
+  <path d="M48 10v5" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="48" cy="18" r="1.4" fill="#fff"/>
+</svg>

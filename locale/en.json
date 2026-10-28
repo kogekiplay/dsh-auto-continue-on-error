@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Auto continue goals on recoverable errors",
+    "description": "Automatically re-arms an active goal after a transient error in a goal round, with a delay and retry limit."
+  }
+}

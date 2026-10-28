@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-auto-continue-on-error
+      name: 'dsh-auto-continue-on-error'
+      config: {}
