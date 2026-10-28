@@ -145,31 +145,35 @@ for (const message of [
   })
 }
 
+test('默认每个目标允许 5 次自动恢复', () => {
+  assert.equal(Config({}).maxRetriesPerGoal.get(), 5)
+})
+
 for (const [code, message] of [
   ['AUTH', 'bad credentials'], ['QUOTA', 'quota exceeded'], ['INVALID_REQUEST', 'bad input'],
   ['CONTEXT_WINDOW_EXCEEDED', 'too long'], ['NO_ADAPTER', 'missing'],
   ['UNKNOWN', 'persistence network error'], ['PI_AI_ERROR', 'upstream invalid request 400'],
   ['PI_AI_ERROR', 'network authentication failed'], ['PI_AI_ERROR', 'model ended pending'],
 ]) {
-  test(`不会恢复永久或无法归因的错误：${code} ${message}`, async () => {
+  test(`有目标时任意模型错误都会自动恢复：${code} ${message}`, async () => {
     const f = fixture()
     f.begin(); f.failure(code, message)
     await f.fire()
-    assert.equal(f.resumes.length, 0)
+    assert.equal(f.resumes.length, 1)
     await f.dispose()
   })
 }
 
-test('遵守总重试预算并按 5/10/20 秒退避', async () => {
+test('遵守总重试预算并按 5/10/20/40/80 秒退避', async () => {
   const f = fixture()
   const delays = []
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 6; i += 1) {
     f.begin(); f.failure()
     if (f.timers.size) delays.push([...f.timers][0].delay)
     await f.fire()
   }
-  assert.deepEqual(delays, [5000, 10000, 20000])
-  assert.equal(f.resumes.length, 3)
+  assert.deepEqual(delays, [5000, 10000, 20000, 40000, 80000])
+  assert.equal(f.resumes.length, 5)
   assert.equal(f.goal().activation, 'disarmed')
   await f.dispose()
 })
@@ -189,17 +193,27 @@ test('Retry-After 超过等待上限时不会提前重试', async () => {
   await f.dispose()
 })
 
-for (const operation of ['pause', 'complete', 'block', 'clear', 'edit', 'resume']) {
+for (const operation of ['pause']) {
+  test(`错误等待期间的 ${operation} 仍会自动恢复`, async () => {
+    const f = fixture()
+    f.begin(); f.failure()
+    f.change(operation, { phase: 'paused' })
+    await f.fire()
+    assert.equal(f.resumes.length, 1)
+    await f.dispose()
+  })
+}
+
+for (const operation of ['complete', 'block', 'clear', 'edit', 'resume']) {
   test(`等待期间的 ${operation} 会撤销旧恢复`, async () => {
     const f = fixture()
     f.begin(); f.failure()
-    f.change(operation, { phase: operation === 'pause' ? 'paused' : 'active' })
+    f.change(operation, { phase: operation === 'complete' ? 'complete' : operation === 'block' ? 'blocked' : 'active' })
     await f.fire()
     assert.equal(f.resumes.length, 0)
     await f.dispose()
   })
 }
-
 test('人类新输入优先，待启动的恢复会撤销', async () => {
   const f = fixture()
   f.begin(); f.failure()
@@ -209,12 +223,12 @@ test('人类新输入优先，待启动的恢复会撤销', async () => {
   await f.dispose()
 })
 
-test('存储检查期间发生暂停也不会继续', async () => {
+test('存储检查期间发生自动暂停仍会继续', async () => {
   const f = fixture()
   f.setFlush(async () => { f.change('pause', { phase: 'paused' }) })
   f.begin(); f.failure()
   await f.fire()
-  assert.equal(f.resumes.length, 0)
+  assert.equal(f.resumes.length, 1)
   await f.dispose()
 })
 
@@ -249,19 +263,22 @@ test('停止信号、归档、替换 Agent 与卸载均不会自动复活', asyn
     if (stop === 'replace') f.replaceAgent()
     if (stop === 'dispose') await f.dispose()
     await f.fire()
-    assert.equal(f.resumes.length, 0, stop)
+    assert.equal(f.resumes.length, stop === 'abort' ? 1 : 0, stop)
     if (stop !== 'dispose') await f.dispose()
   }
 })
 
-test('已停用的目标和耗尽轮次的目标不会恢复', async () => {
-  for (const initial of [{ activation: 'disarmed' }, { roundsStarted: 100 }]) {
-    const f = fixture({}, initial)
-    f.begin(); f.failure()
-    await f.fire()
-    assert.equal(f.resumes.length, 0)
-    await f.dispose()
-  }
+test('有目标且已停用时仍会恢复，但耗尽轮次不会恢复', async () => {
+  const paused = fixture({}, { activation: 'disarmed' })
+  paused.begin(); paused.failure()
+  await paused.fire()
+  assert.equal(paused.resumes.length, 1)
+  await paused.dispose()
+  const exhausted = fixture({}, { roundsStarted: 100 })
+  exhausted.begin(); exhausted.failure()
+  await exhausted.fire()
+  assert.equal(exhausted.resumes.length, 0)
+  await exhausted.dispose()
 })
 
 test('agent/error 本身不会安排重试，必须有持久化 turn/end', async () => {

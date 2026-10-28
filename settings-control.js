@@ -31,12 +31,12 @@ export function installSettingsControls(ctx) {
   ctx.inject(['settings', 'tools'], child => {
     child.effect(() => child.tools.register({
       name: 'auto_continue_settings',
-      description: 'Read or change automatic goal recovery settings. Updates require a direct human request in the current main-session turn.',
+      description: 'Read or change automatic goal recovery settings. Any model error is retried while a goal exists; updates require a direct human request in the current main-session turn.',
       parameters: {
         type: 'object', additionalProperties: false, required: ['action'],
         properties: {
           action: { type: 'string', enum: ['get', 'update'] },
-          enabled: { type: 'boolean', description: 'Whether temporary model errors may automatically resume an active goal.' },
+          enabled: { type: 'boolean', description: 'Whether any model error may automatically resume an existing goal.' },
           delayMs: { type: 'integer', minimum: 1, maximum: 600000, description: 'Initial recovery delay in milliseconds.' },
           maxDelayMs: { type: 'integer', minimum: 1, maximum: 3600000, description: 'Maximum recovery delay in milliseconds; at least delayMs.' },
           maxRetriesPerGoal: { type: 'integer', minimum: 1, maximum: 100, description: 'Total automatic recoveries allowed for one goal.' },

@@ -1,6 +1,7 @@
 node_modules/
 .DS_Store
 *.tgz
+live-130/
 runtime-smoke/
 runtime-*-result.json
 .evidence/

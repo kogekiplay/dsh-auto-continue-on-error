@@ -12,23 +12,13 @@ export const Config = Schema.object({
     .description('首次恢复等待毫秒数；连续失败按 2 倍退避。').volatile(),
   maxDelayMs: Schema.number().step(1).min(1).max(3_600_000).default(120_000)
     .description('最长等待毫秒数；提供方要求更长时停止自动恢复。').volatile(),
-  maxRetriesPerGoal: Schema.number().step(1).min(1).max(100).default(3)
+  maxRetriesPerGoal: Schema.number().step(1).min(1).max(100).default(5)
     .description('同一目标的自动恢复总次数；手动继续或编辑目标会重置。').volatile(),
 })
 
-const TRANSIENT_CODES = new Set(['SERVER', 'TRANSPORT', 'TIMEOUT', 'RATE_LIMIT', 'STREAM_CLOSED'])
-const TRANSPORT_TEXT = /\b(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|ENETUNREACH|EAI_AGAIN|terminated)\b|upstream HTTP\/?2 stream failed|HTTP2 request did not get a response|stream ended (?:before|without)|premature close|socket hang up|other side closed|fetch failed|network error|connection (?:reset|closed)|websocket closed unexpectedly/iu
-const TEMPORARY_SERVER_TEXT = /\bserver_error\b|\boverloaded\b|\boverloaded_error\b|\bservice unavailable\b|\binternal server error\b|\bbad gateway\b|\bgateway timeout\b/iu
-const PERMANENT_TEXT = /\b(?:401|402|403|400|413)\b|unauthori[sz]ed|authentication|invalid (?:api[- ]?key|request)|insufficient (?:quota|balance)|quota exceeded|context (?:window|length)|payload too large/iu
-
-/** pi-ai 有时把传输中断合并为 PI_AI_ERROR；只匹配已知的中断文案。 */
-function recoverable(failure) {
-  if (failure.status !== undefined && failure.status >= 400 && failure.status < 500
-    && failure.status !== 408 && failure.status !== 429) return false
-  if (PERMANENT_TEXT.test(failure.message)) return false
-  if (TRANSIENT_CODES.has(failure.code)) return true
-  return failure.code === 'PI_AI_ERROR'
-    && (TRANSPORT_TEXT.test(failure.message) || TEMPORARY_SERVER_TEXT.test(failure.message))
+/** 只要当前会话仍有 Goal，模型请求返回的任意错误都自动恢复。 */
+function recoverable(_failure) {
+  return true
 }
 
 function armedRef(goal) {
@@ -82,7 +72,8 @@ export function apply(ctx, config) {
     if (disposed || !settings.enabled || state.pending !== pending || ctx.agents.get(state.agent.id) !== state.agent
       || state.agent.status !== 'idle' || state.agent.inbox.hasPending) return false
     const goal = ctx.goals.get(state.agent)
-    return matches(goal, pending.ref) && goal.phase === 'active' && goal.activation === 'disarmed'
+    const phaseAllowed = goal?.phase === 'active' || (pending.allowPaused === true && goal?.phase === 'paused')
+    return matches(goal, pending.ref) && phaseAllowed && goal.activation === 'disarmed'
       && goal.roundsStarted < goal.maxGoalRounds && state.retries < settings.maxRetriesPerGoal
   }
 
@@ -112,7 +103,7 @@ export function apply(ctx, config) {
     }
   }
 
-  function schedule(state, failure, ref) {
+  function schedule(state, failure, ref, turn, allowPaused = false) {
     if (!settings.enabled) return
     if (state.pending !== undefined || state.retries >= settings.maxRetriesPerGoal) {
       if (state.retries >= settings.maxRetriesPerGoal) {
@@ -127,7 +118,7 @@ export function apply(ctx, config) {
     }
     const delay = Math.max(providerDelay,
       Math.min(settings.maxDelayMs, settings.delayMs * (2 ** state.consecutive)))
-    const pending = { ref, dispose: undefined }
+    const pending = { ref, turn, allowPaused, dispose: undefined }
     state.pending = pending
     try {
       pending.dispose = ctx.agents.withoutInitiator(() => ctx.timer.timeout(() => {
@@ -150,8 +141,24 @@ export function apply(ctx, config) {
   ctx.on('agent/created', ({ agent }) => { stateOf(agent) })
   ctx.on('goal/changed', ({ agent, change }) => {
     const state = stateOf(agent)
+    const pending = state.pending
+    const autoPausedAfterError = pending !== undefined
+      && change.operation === 'pause'
+      && change.goal !== undefined
+      && change.goal.id === pending.ref.id
+      && state.error?.turn === pending.turn
+    if (autoPausedAfterError) {
+      pending.ref = { id: change.goal.id, revision: change.goal.revision }
+      pending.allowPaused = true
+      state.ref = pending.ref
+      return
+    }
+    if (state.recovering && change.operation === 'resume' && change.goal !== undefined) {
+      state.ref = { id: change.goal.id, revision: change.goal.revision }
+      return
+    }
     cancel(state)
-    state.ref = armedRef(change.goal)
+    state.ref = change.goal === undefined ? undefined : { id: change.goal.id, revision: change.goal.revision }
     if (!state.recovering && ['create', 'edit', 'resume'].includes(change.operation)) {
       state.goalId = change.goal?.id
       state.retries = 0
@@ -210,9 +217,10 @@ export function apply(ctx, config) {
       return
     }
     const goal = ctx.goals.get(agent)
-    if (!matches(goal, state.ref) || goal.phase !== 'active'
+    const ref = state.ref ?? (goal === undefined ? undefined : { id: goal.id, revision: goal.revision })
+    if (ref === undefined || goal === undefined || (goal.phase !== 'active' && goal.phase !== 'paused')
       || goal.activation !== 'disarmed' || goal.roundsStarted >= goal.maxGoalRounds) return
-    schedule(state, reason.error, state.ref)
+    schedule(state, reason.error, ref, event.data.turn, goal.phase === 'paused')
   })
 
   ctx.on('workspace/session-stop', ({ sessionId }) => {

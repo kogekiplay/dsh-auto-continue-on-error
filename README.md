@@ -1,12 +1,12 @@
 # DSH 报错后自动继续目标
 
-为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供有界的自动错误恢复和中文设置页。目标运行遇到临时模型错误时，等待后恢复目标，让原有 Goal 驱动器在同一会话继续工作。
+为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供有界的自动错误恢复和中文设置页。只要同一会话仍有目标，模型请求出现错误后插件会等待并恢复目标，让原有 Goal 驱动器继续工作；错误导致的目标暂停也会自动解除。
 
-支持 `PI_AI_ERROR: Upstream HTTP/2 stream failed`，以及 `server_error: Our servers are currently overloaded. Please try again later.` 等服务器过载错误。无需在自动恢复后再手动发送“继续”。
+支持截图中的 `PI_AI_ERROR: Upstream HTTP/2 stream failed`、`TRANSPORT`，也支持认证、配额、请求参数、上下文、网络和服务器过载等其他模型错误。无需在自动恢复后再手动发送“继续”。
 
 ## 安装
 
-下载 [GitHub Releases](https://github.com/kogekiplay/dsh-auto-continue-on-error/releases) 中的 `dsh-auto-continue-on-error-1.2.1.tgz`，通过 DSH 插件管理器安装该 bundle。也可以让 DSH 的 Agent 使用 `plugin_manager`，将 Release 中的压缩包下载地址作为 `install_bundle` 的 target。
+下载 [GitHub Releases](https://github.com/kogekiplay/dsh-auto-continue-on-error/releases) 中的 `dsh-auto-continue-on-error-1.3.0.tgz`，通过 DSH 插件管理器安装该 bundle。也可以让 DSH 的 Agent 使用 `plugin_manager`，将 Release 中的压缩包下载地址作为 `install_bundle` 的 target。
 
 从源码安装时：
 
@@ -29,7 +29,7 @@ pnpm install --frozen-lockfile --ignore-scripts
 | 启用自动继续 | 开启 | 关闭并保存后，取消尚未启动的恢复 |
 | 首次等待时间 | 5 秒 | 连续失败时按 2 倍退避 |
 | 最长等待时间 | 120 秒 | 提供方要求更长等待时停止自动恢复 |
-| 每个目标最多自动恢复 | 3 次 | 手动继续或编辑目标后重置总次数 |
+| 每个目标最多自动恢复 | 5 次 | 连续错误达到上限后停止该目标的自动恢复 |
 
 点击“保存设置”后立即生效，并持久化到当前 profile；无需重启插件。成功轮次只重置退避，不重置恢复总预算。目标自己的轮数上限继续生效。
 
@@ -39,18 +39,18 @@ pnpm install --frozen-lockfile --ignore-scripts
 enabled: true
 delayMs: 5000
 maxDelayMs: 120000
-maxRetriesPerGoal: 3
+maxRetriesPerGoal: 5
 ```
 
 ## 恢复规则
 
-1. 出错前必须存在 active 且已启用续行的目标。没有目标的普通对话不会重跑。
-2. 只接受已分类的服务器、网络、超时、限流或流中断错误；`PI_AI_ERROR` 只匹配已知的传输中断或临时服务器故障文案。
-3. 等待失败轮次完整结束并检查日志持久化，然后重新确认目标版本、剩余轮数、Agent 空闲状态和收件箱。
-4. 调用 Goal 服务恢复目标，由原有驱动器安排下一轮；不伪造人类消息，也不重放已经执行的工具。
-5. 暂停、完成、阻塞、人工停止、新输入、编辑目标、归档、卸载和持久化失败会取消待启动的恢复。
+1. 只要当前会话存在目标，模型请求的任意 `turn/end: error` 都会进入自动恢复；没有目标的普通对话不会重跑。
+2. 插件等待失败轮次完整结束并检查日志持久化，然后重新确认目标版本、剩余轮数、Agent 空闲状态和收件箱。
+3. 目标驱动器因失败轮次把目标写成 `paused` 时，插件保留该恢复任务并使用新的 Goal revision 自动 `resume`；不需要人类再发一句“继续”。
+4. 每个目标默认最多自动恢复 5 次，按 5/10/20/40/80 秒退避。目标自己的 round 上限继续生效。
+5. 完成、阻塞、目标轮数耗尽、归档、卸载和持久化检查失败会停止恢复。用户发送新输入时，插件仍会优先让现有会话处理该输入。
 
-认证、余额、配额、请求参数、上下文超限和存储故障需要人工处理。插件不会自动批准工具权限，不会解除用户主动设置的停止状态。
+认证、余额、配额、请求参数、上下文超限和网络故障也会按相同策略恢复；如果提供方持续失败，达到 5 次目标恢复上限后停止，并在设置页保留可调整的上限。插件不会自动批准工具权限，也不会增加目标 round 上限。
 
 安装前已停止的目标需要先手动继续一次。DSH 重启或会话重载后，也需要先明确继续目标。使用期间 DSH 进程、电脑和网络需要保持运行；插件不负责唤醒睡眠电脑或重启 DSH。
 
@@ -76,7 +76,7 @@ Host 的版本化入口保证目录升级后加载新的 ESM generation。Client
 - 定时器和恢复计数属于当前插件实例；卸载或重启会清除它们。
 - 已耗尽的 Goal round 额度不会因恢复而增加。
 - 原有 Goal 驱动器会等待仍在推进的子 Agent；这段等待不会被强制绕过。
-- 手动把目标改成 active，仅代表目标状态已恢复；实际模型请求仍须满足空闲、持久化和子 Agent 等条件。
+- 错误导致的 paused 目标会在恢复任务中自动解除；完成、阻塞和显式归档仍然停止恢复。
 
 ## 许可证
 
