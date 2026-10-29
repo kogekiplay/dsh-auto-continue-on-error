@@ -1,6 +1,6 @@
 /** 为仍有执行授权的 Goal 提供有界的模型错误恢复。 */
 import Schema from '@deepseek-ai/schemastery'
-import { installSettingsControls } from './settings-control.js?version=1.3.1'
+import { installSettingsControls } from './settings-control.js?version=1.3.2'
 
 export const name = 'dsh-auto-continue-on-error'
 export const inject = ['agents', 'goals', 'sessions', 'timer']
@@ -60,6 +60,16 @@ export function apply(ctx, config) {
   function cancel(state) {
     state.pending?.dispose?.()
     state.pending = undefined
+  }
+
+  function latestError(session) {
+    for (const event of session.snapshotEvents().toReversed()) {
+      if (event.type === 'user/message') return undefined
+      if (event.type !== 'turn/end') continue
+      return event.data.reason.kind === 'error'
+        ? { turn: event.data.turn, failure: event.data.reason.error } : undefined
+    }
+    return undefined
   }
 
   function resetTurn(state) {
@@ -229,7 +239,15 @@ export function apply(ctx, config) {
     states.delete(agent)
   })
 
-  for (const agent of ctx.agents.list()) stateOf(agent)
+  for (const agent of ctx.agents.list()) {
+    const state = stateOf(agent)
+    const goal = ctx.goals.get(agent)
+    if (goal?.phase !== 'paused' || goal.activation !== 'disarmed') continue
+    const previous = latestError(agent.session)
+    if (previous === undefined) continue
+    state.failedTurn = previous.turn
+    schedule(state, previous.failure, { id: goal.id, revision: goal.revision }, previous.turn, true)
+  }
 
   ctx.effect(() => async () => {
     disposed = true

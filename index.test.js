@@ -9,12 +9,13 @@ function fixture(config = {}, start = {}) {
   const timers = new Set()
   const logs = []
   const resumes = []
+  const existingEvents = start.existingEvents ?? []
   let goal = {
     id: 'goal-test', revision: 1, phase: 'active', activation: 'armed',
     roundsStarted: 1, maxGoalRounds: 100, ...start,
   }
   const agent = { id: 'session-test', status: 'idle', inbox: { hasPending: false } }
-  agent.session = { id: agent.id }
+  agent.session = { id: agent.id, snapshotEvents: () => existingEvents }
   let live = agent
   let flush = async () => true
   function emit(event, ...args) {
@@ -42,7 +43,7 @@ function fixture(config = {}, start = {}) {
         assert.equal(goal.revision, ref.revision)
         assert.equal(goal.activation, 'disarmed')
         resumes.push({ ...ref })
-        change('resume', { activation: 'armed' })
+        change('resume', { activation: 'armed', phase: goal.phase === 'paused' ? 'active' : goal.phase })
       },
     },
     sessions: { flush: () => flush() },
@@ -145,8 +146,23 @@ for (const message of [
   })
 }
 
-test('默认每个目标允许 5 次自动恢复', () => {
-  assert.equal(Config({}).maxRetriesPerGoal.get(), 5)
+test('加载插件时接续此前因最终错误暂停的目标', async () => {
+  const f = fixture({}, {
+    phase: 'paused', activation: 'disarmed',
+    existingEvents: [{ type: 'turn/end', data: { turn: 7, reason: { kind: 'error', error: { code: 'TRANSPORT', message: 'Connection error' } } } }],
+  })
+  assert.equal([...f.timers][0].delay, 5000)
+  await f.fire()
+  assert.equal(f.resumes.length, 1)
+  await f.dispose()
+})
+
+test('加载插件时没有最终错误的人工暂停不会自动解除', async () => {
+  const f = fixture({}, { phase: 'paused', activation: 'disarmed' })
+  assert.equal(f.timers.size, 0)
+  await f.fire()
+  assert.equal(f.resumes.length, 0)
+  await f.dispose()
 })
 
 for (const [code, message] of [
