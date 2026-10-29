@@ -1,6 +1,6 @@
 /** 为仍有执行授权的 Goal 提供有界的模型错误恢复。 */
 import Schema from '@deepseek-ai/schemastery'
-import { installSettingsControls } from './settings-control.js?version=1.2.1'
+import { installSettingsControls } from './settings-control.js?version=1.3.1'
 
 export const name = 'dsh-auto-continue-on-error'
 export const inject = ['agents', 'goals', 'sessions', 'timer']
@@ -51,7 +51,7 @@ export function apply(ctx, config) {
     state = {
       agent, ref: armedRef(goal), goalId: goal?.id,
       retries: 0, consecutive: 0, pending: undefined,
-      error: undefined, recovering: false, removeAbort: undefined,
+      failedTurn: undefined, recovering: false, removeAbort: undefined,
     }
     states.set(agent, state)
     return state
@@ -65,7 +65,7 @@ export function apply(ctx, config) {
   function resetTurn(state) {
     state.removeAbort?.()
     state.removeAbort = undefined
-    state.error = undefined
+    state.failedTurn = undefined
   }
 
   function eligible(state, pending) {
@@ -146,7 +146,7 @@ export function apply(ctx, config) {
       && change.operation === 'pause'
       && change.goal !== undefined
       && change.goal.id === pending.ref.id
-      && state.error?.turn === pending.turn
+      && state.failedTurn === pending.turn
     if (autoPausedAfterError) {
       pending.ref = { id: change.goal.id, revision: change.goal.revision }
       pending.allowPaused = true
@@ -183,17 +183,9 @@ export function apply(ctx, config) {
     return next()
   })
 
-  ctx.on('agent/error', ({ agent, turn, error }) => {
+  ctx.on('agent/error', ({ agent, turn }) => {
     if (ctx.agents.get(agent.id) !== agent) return
-    const state = stateOf(agent)
-    if (state.error !== undefined) {
-      // 同一轮次的第二个失败可能是持久化/收尾故障，撤销恢复。
-      state.error = { turn, unsafe: true }
-      cancel(state)
-      return
-    }
-    state.error = { turn, unsafe: false }
-    if (state.pending !== undefined) cancel(state)
+    stateOf(agent).failedTurn = turn
   })
 
   ctx.on('session/event', (session, event) => {
@@ -211,11 +203,11 @@ export function apply(ctx, config) {
     state.removeAbort = undefined
     const reason = event.data.reason
     if (reason.kind === 'completed') state.consecutive = 0
-    if (reason.kind !== 'error' || state.error?.unsafe
-      || state.error?.turn !== event.data.turn || !recoverable(reason.error)) {
+    if (reason.kind !== 'error' || !recoverable(reason.error)) {
       cancel(state)
       return
     }
+    state.failedTurn = event.data.turn
     const goal = ctx.goals.get(agent)
     const ref = state.ref ?? (goal === undefined ? undefined : { id: goal.id, revision: goal.revision })
     if (ref === undefined || goal === undefined || (goal.phase !== 'active' && goal.phase !== 'paused')

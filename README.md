@@ -6,7 +6,7 @@
 
 ## 安装
 
-下载 [GitHub Releases](https://github.com/kogekiplay/dsh-auto-continue-on-error/releases) 中的 `dsh-auto-continue-on-error-1.3.0.tgz`，通过 DSH 插件管理器安装该 bundle。也可以让 DSH 的 Agent 使用 `plugin_manager`，将 Release 中的压缩包下载地址作为 `install_bundle` 的 target。
+下载 [GitHub Releases](https://github.com/kogekiplay/dsh-auto-continue-on-error/releases) 中的 `dsh-auto-continue-on-error-1.3.1.tgz`，通过 DSH 插件管理器安装该 bundle。也可以让 DSH 的 Agent 使用 `plugin_manager`，将 Release 中的压缩包下载地址作为 `install_bundle` 的 target。
 
 从源码安装时：
 

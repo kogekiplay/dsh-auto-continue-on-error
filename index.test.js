@@ -242,12 +242,31 @@ test('存储检查失败会保留停用状态', async () => {
   await f.dispose()
 })
 
-test('第二个收尾错误会取消已经设置的重试', async () => {
+test('多个 agent/error 事件不会取消最终 turn/end 自动恢复', async () => {
   const f = fixture()
-  f.begin(); f.failure()
-  f.emit('agent/error', { agent: f.agent, turn: 1, error: new Error('flush failed') })
+  f.begin()
+  f.emit('agent/error', { agent: f.agent, turn: 1, error: new Error('tool cleanup failed') })
+  f.emit('agent/error', { agent: f.agent, turn: 1, error: new Error('request attempt failed') })
+  f.goal().activation = 'disarmed'
+  f.emit('session/event', f.agent.session, {
+    type: 'turn/end', data: { turn: 1, reason: { kind: 'error', error: { code: 'TRANSPORT', message: 'Connection error' } } },
+  })
+  f.agent.status = 'idle'
   await f.fire()
-  assert.equal(f.resumes.length, 0)
+  assert.equal(f.resumes.length, 1)
+  await f.dispose()
+})
+
+test('没有 agent/error 事件时也以持久化 turn/end 自动恢复', async () => {
+  const f = fixture()
+  f.begin()
+  f.goal().activation = 'disarmed'
+  f.emit('session/event', f.agent.session, {
+    type: 'turn/end', data: { turn: 1, reason: { kind: 'error', error: { code: 'TRANSPORT', message: 'Connection error' } } },
+  })
+  f.agent.status = 'idle'
+  await f.fire()
+  assert.equal(f.resumes.length, 1)
   await f.dispose()
 })
 
