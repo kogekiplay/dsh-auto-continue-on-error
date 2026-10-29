@@ -1,0 +1,5 @@
+- insert:
+    - id: auto-continue-runtime-check
+      name: dsh-auto-continue-runtime-check
+    - id: auto-continue-slow-notice-check
+      name: dsh-auto-continue-runtime-check/slow-notice

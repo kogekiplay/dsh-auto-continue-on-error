@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Auto continue goals on recoverable errors",
-    "description": "Automatically re-arms an active goal after a transient error in a goal round, with a delay and retry limit."
+    "title": "Auto continue goals on any model error",
+    "description": "Continuously resumes a goal after model errors, including background-agent notifications, until the goal ends or is explicitly stopped."
   }
 }

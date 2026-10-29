@@ -1,6 +1,6 @@
 /** Settings 表单与模型工具均委托给同一个 Host settings 服务。 */
 export const SETTINGS_ID = 'dsh-auto-continue-on-error'
-const KEYS = ['enabled', 'delayMs', 'maxDelayMs', 'maxRetriesPerGoal']
+const KEYS = ['enabled', 'continuousRecovery', 'delayMs', 'maxDelayMs', 'maxRetriesPerGoal']
 
 /** 自动续轮不能自行扩大恢复策略；写入必须来自当前根会话的人类轮次。 */
 function requireHuman(ctx, exec) {
@@ -39,7 +39,8 @@ export function installSettingsControls(ctx) {
           enabled: { type: 'boolean', description: 'Whether any model error may automatically resume an existing goal.' },
           delayMs: { type: 'integer', minimum: 1, maximum: 600000, description: 'Initial recovery delay in milliseconds.' },
           maxDelayMs: { type: 'integer', minimum: 1, maximum: 3600000, description: 'Maximum recovery delay in milliseconds; at least delayMs.' },
-          maxRetriesPerGoal: { type: 'integer', minimum: 1, maximum: 100, description: 'Total automatic recoveries allowed for one goal.' },
+          continuousRecovery: { type: 'boolean', description: 'Keep recovering without a retry count limit; defaults to true.' },
+          maxRetriesPerGoal: { type: 'integer', minimum: 1, maximum: 100, description: 'Recovery limit per goal only when continuousRecovery is false.' },
           expectedRevision: { type: 'integer', minimum: 0, description: 'Revision from get; required for update.' },
         },
       },

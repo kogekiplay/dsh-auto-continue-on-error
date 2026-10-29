@@ -1,0 +1,15 @@
+{
+  "name": "dsh-auto-continue-runtime-check",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./slow-notice": "./slow-notice.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

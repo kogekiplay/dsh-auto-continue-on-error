@@ -3,6 +3,7 @@ node_modules/
 *.tgz
 live-130/
 runtime-smoke/
+tests/runtime/*result.json
 runtime-*-result.json
 .evidence/
 .env
